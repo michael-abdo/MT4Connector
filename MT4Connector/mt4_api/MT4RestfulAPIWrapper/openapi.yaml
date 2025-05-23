@@ -1,0 +1,792 @@
+openapi: 3.0.3
+info:
+  title: MT4 Manager REST API
+  description: |
+    A RESTful API for MetaTrader 4 Manager functionality.
+    
+    This API provides a modern web interface to MT4 Manager API, allowing you to:
+    - Access account information
+    - View and manage trades
+    - Get market data and symbols
+    - Execute trading operations
+  version: 1.0.0
+  contact:
+    email: support@example.com
+servers:
+  - url: 'http://localhost:5000/api'
+    description: Development server
+  - url: 'https://mt4api.example.com/api'
+    description: Production server
+
+tags:
+  - name: Authentication
+    description: Authentication endpoints
+  - name: Server
+    description: MT4 server-related operations
+  - name: Accounts
+    description: Trading account operations
+  - name: Symbols
+    description: Trading symbol operations
+  - name: Trades
+    description: Trading operations
+  - name: Health
+    description: Health check endpoint
+
+paths:
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: Authenticate user
+      description: Authenticate user and return JWT token
+      operationId: login
+      requestBody:
+        description: User credentials
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Credentials'
+      responses:
+        '200':
+          description: Successful authentication
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    type: object
+                    properties:
+                      token:
+                        type: string
+                        example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                      expires_in:
+                        type: integer
+                        example: 3600
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /server/status:
+    get:
+      tags:
+        - Server
+      summary: Get MT4 server status
+      description: Get the current status of the MT4 server connection
+      operationId: getServerStatus
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    type: object
+                    properties:
+                      connected:
+                        type: boolean
+                        example: true
+                      logged_in:
+                        type: boolean
+                        example: true
+                      server:
+                        type: string
+                        example: mt4server.example.com
+                      port:
+                        type: integer
+                        example: 443
+                      using_mock_mode:
+                        type: boolean
+                        example: false
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /accounts:
+    get:
+      tags:
+        - Accounts
+      summary: Get all accounts
+      description: Get a list of all trading accounts
+      operationId: getAccounts
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Account'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /accounts/{login}:
+    get:
+      tags:
+        - Accounts
+      summary: Get account details
+      description: Get detailed information about a specific trading account
+      operationId: getAccount
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: login
+          in: path
+          description: Account login ID
+          required: true
+          schema:
+            type: integer
+            format: int32
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    $ref: '#/components/schemas/Account'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /symbols:
+    get:
+      tags:
+        - Symbols
+      summary: Get all symbols
+      description: Get a list of all available trading symbols
+      operationId: getSymbols
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    type: array
+                    items:
+                      type: string
+                    example: ["EURUSD", "GBPUSD", "USDJPY"]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /symbols/{symbol}:
+    get:
+      tags:
+        - Symbols
+      summary: Get symbol details
+      description: Get detailed information about a specific trading symbol
+      operationId: getSymbol
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: symbol
+          in: path
+          description: Symbol name
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    $ref: '#/components/schemas/SymbolInfo'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /trades:
+    get:
+      tags:
+        - Trades
+      summary: Get all trades
+      description: Get a list of all trades with optional filtering
+      operationId: getTrades
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: login
+          in: query
+          description: Filter trades by account login ID
+          required: false
+          schema:
+            type: integer
+            format: int32
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Trade'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+          
+    post:
+      tags:
+        - Trades
+      summary: Place a new order
+      description: Place a new trade order
+      operationId: placeOrder
+      security:
+        - BearerAuth: []
+      requestBody:
+        description: Order details
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderRequest'
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    type: object
+                    properties:
+                      ticket:
+                        type: integer
+                        description: Order ticket number
+                        example: 10001
+                      message:
+                        type: string
+                        example: "Order placed successfully with ticket 10001"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /trades/{ticket}:
+    get:
+      tags:
+        - Trades
+      summary: Get trade details
+      description: Get detailed information about a specific trade
+      operationId: getTrade
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: ticket
+          in: path
+          description: Trade ticket number
+          required: true
+          schema:
+            type: integer
+            format: int32
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    $ref: '#/components/schemas/Trade'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+          
+    put:
+      tags:
+        - Trades
+      summary: Modify an order
+      description: Modify an existing trade order
+      operationId: modifyOrder
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: ticket
+          in: path
+          description: Trade ticket number
+          required: true
+          schema:
+            type: integer
+            format: int32
+      requestBody:
+        description: Order modification details
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderModifyRequest'
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    type: object
+                    properties:
+                      ticket:
+                        type: integer
+                        example: 10001
+                      message:
+                        type: string
+                        example: "Order 10001 modified successfully"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+          
+    delete:
+      tags:
+        - Trades
+      summary: Close an order
+      description: Close an existing trade order
+      operationId: closeOrder
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: ticket
+          in: path
+          description: Trade ticket number
+          required: true
+          schema:
+            type: integer
+            format: int32
+        - name: login
+          in: query
+          description: Account login ID (required if not discoverable from ticket)
+          required: false
+          schema:
+            type: integer
+            format: int32
+        - name: volume
+          in: query
+          description: Volume to close (for partial close)
+          required: false
+          schema:
+            type: number
+            format: float
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    type: object
+                    properties:
+                      ticket:
+                        type: integer
+                        example: 10001
+                      message:
+                        type: string
+                        example: "Order 10001 closed successfully"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      description: Check if the API service is healthy
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    type: object
+                    properties:
+                      service:
+                        type: string
+                        example: "MT4 REST API"
+                      time:
+                        type: string
+                        format: date-time
+                        example: "2023-03-01T12:00:00.000Z"
+                      healthy:
+                        type: boolean
+                        example: true
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from the /auth/login endpoint
+      
+  schemas:
+    Credentials:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          example: admin
+        password:
+          type: string
+          format: password
+          example: password
+    
+    Account:
+      type: object
+      properties:
+        login:
+          type: integer
+          description: Account login ID
+          example: 12345
+        group:
+          type: string
+          description: Account group
+          example: demo
+        name:
+          type: string
+          description: Account holder's name
+          example: John Doe
+        email:
+          type: string
+          description: Account holder's email
+          example: john.doe@example.com
+        leverage:
+          type: integer
+          description: Account leverage
+          example: 100
+        balance:
+          type: number
+          format: double
+          description: Account balance
+          example: 10000.0
+        credit:
+          type: number
+          format: double
+          description: Account credit
+          example: 0.0
+    
+    SymbolInfo:
+      type: object
+      properties:
+        symbol:
+          type: string
+          description: Symbol name
+          example: EURUSD
+        digits:
+          type: integer
+          description: Number of decimal places
+          example: 5
+        point:
+          type: number
+          format: double
+          description: Point size
+          example: 0.00001
+        spread:
+          type: integer
+          description: Current spread in points
+          example: 2
+        bid:
+          type: number
+          format: double
+          description: Current bid price
+          example: 1.10050
+        ask:
+          type: number
+          format: double
+          description: Current ask price
+          example: 1.10052
+        last:
+          type: number
+          format: double
+          description: Last price
+          example: 1.10051
+        volume:
+          type: integer
+          description: Current volume
+          example: 10000
+    
+    Trade:
+      type: object
+      properties:
+        order:
+          type: integer
+          description: Order ticket number
+          example: 10001
+        login:
+          type: integer
+          description: Account login ID
+          example: 12345
+        symbol:
+          type: string
+          description: Trading symbol
+          example: EURUSD
+        digits:
+          type: integer
+          description: Price decimal places
+          example: 5
+        cmd:
+          type: integer
+          description: Trade command (0=Buy, 1=Sell, etc.)
+          example: 0
+        volume:
+          type: integer
+          description: Trade volume in MT4 format (1.0 lot = 100)
+          example: 10
+        open_time:
+          type: integer
+          description: Open time (Unix timestamp)
+          example: 1614675200
+        state:
+          type: integer
+          description: Trade state (0=Open, 3=Closed, etc.)
+          example: 0
+        open_price:
+          type: number
+          format: double
+          description: Open price
+          example: 1.10500
+        sl:
+          type: number
+          format: double
+          description: Stop loss level
+          example: 1.09500
+        tp:
+          type: number
+          format: double
+          description: Take profit level
+          example: 1.11500
+        close_time:
+          type: integer
+          description: Close time (Unix timestamp)
+          example: 0
+        profit:
+          type: number
+          format: double
+          description: Current profit
+          example: 20.0
+        comment:
+          type: string
+          description: Trade comment
+          example: API order
+    
+    OrderRequest:
+      type: object
+      required:
+        - login
+        - symbol
+        - type
+        - volume
+        - price
+      properties:
+        login:
+          type: integer
+          description: Account login ID
+          example: 12345
+        symbol:
+          type: string
+          description: Trading symbol
+          example: EURUSD
+        type:
+          type: string
+          description: Order type
+          enum: [buy, sell, buylimit, selllimit, buystop, sellstop]
+          example: buy
+        volume:
+          type: number
+          format: float
+          description: Trade volume in lots
+          example: 0.1
+        price:
+          type: number
+          format: double
+          description: Order price
+          example: 1.10500
+        sl:
+          type: number
+          format: double
+          description: Stop loss level
+          example: 1.09500
+        tp:
+          type: number
+          format: double
+          description: Take profit level
+          example: 1.11500
+        comment:
+          type: string
+          description: Order comment
+          example: API order
+    
+    OrderModifyRequest:
+      type: object
+      properties:
+        login:
+          type: integer
+          description: Account login ID (optional if discoverable from ticket)
+          example: 12345
+        price:
+          type: number
+          format: double
+          description: New price (for pending orders)
+          example: 1.10600
+        sl:
+          type: number
+          format: double
+          description: New stop loss level
+          example: 1.09600
+        tp:
+          type: number
+          format: double
+          description: New take profit level
+          example: 1.11600
+    
+    Error:
+      type: object
+      properties:
+        status:
+          type: string
+          example: error
+        message:
+          type: string
+          example: Detailed error message
+  
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+            example:
+              status: error
+              message: Invalid request parameters
+              
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+            example:
+              status: error
+              message: Missing or invalid authentication token
+              
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+            example:
+              status: error
+              message: Resource not found
+              
+    ServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+            example:
+              status: error
+              message: Internal server error

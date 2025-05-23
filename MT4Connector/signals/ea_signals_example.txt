@@ -1,0 +1,39 @@
+[
+  {
+    "id": "signal_123456",
+    "type": "buy",
+    "symbol": "EURUSD",
+    "login": 12345,
+    "volume": 0.1,
+    "sl": 1.0800,
+    "tp": 1.0950,
+    "comment": "EA Signal"
+  },
+  {
+    "id": "signal_123457",
+    "type": "sell",
+    "symbol": "GBPUSD", 
+    "login": 12345,
+    "volume": 0.2,
+    "sl": 1.2650,
+    "tp": 1.2450,
+    "comment": "EA Signal"
+  },
+  {
+    "id": "signal_123458",
+    "type": "buy_limit",
+    "symbol": "USDJPY",
+    "login": 12345,
+    "volume": 0.1,
+    "price": 108.50,
+    "sl": 108.00,
+    "tp": 109.50,
+    "comment": "EA Signal"
+  },
+  {
+    "id": "signal_123459",
+    "type": "close",
+    "login": 12345,
+    "ticket": 987654
+  }
+]

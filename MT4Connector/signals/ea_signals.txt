@@ -1,0 +1,1 @@
+{"signal_id":"test_123","type":"buy","symbol":"EURUSD","volume":0.1,"login":"12345"}

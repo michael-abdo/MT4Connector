@@ -93,22 +93,47 @@ solodex/
 ├── .env                     # Environment configuration (create from .env.example)
 ├── .env.example            # Example environment file
 ├── .env.test               # Test environment configuration
+├── .gitignore              # Git ignore rules
 ├── README.md               # This file
-├── ENV_SETUP_GUIDE.md      # Detailed environment setup guide
-├── claude.md               # Development roadmap and phases
+├── requirements.txt        # Python dependencies
+├── setup.sh               # Main setup script
 │
-├── MT4Connector/           # Core MT4 integration
+├── docs/                   # Documentation
+│   ├── architecture_diagram.md
+│   ├── claude.md          # Development roadmap
+│   ├── DEV_SETUP_GUIDE.md
+│   ├── ENV_SETUP_GUIDE.md
+│   ├── FIXING_TESTS_SUMMARY.md
+│   ├── TEST_REPORT.md
+│   └── phases/            # Phase-specific docs
+│       ├── PHASE1_README.md
+│       ├── PHASE2_README.md
+│       └── PHASE3_README.md
+│
+├── scripts/               # Utility scripts
+│   ├── run.py
+│   ├── run_tests_with_dotenv.py
+│   └── run_tests_with_env.sh
+│
+├── MT4Connector/          # Core MT4 integration
+│   ├── README.md
+│   ├── START_CONNECTOR.bat/command/sh
+│   ├── requirements.txt
 │   ├── src/               
 │   │   ├── config.py      # Configuration (reads from .env)
+│   │   ├── mock_api.py    # Mock API for testing
 │   │   ├── mt4_api.py     # MT4 Manager API wrapper
+│   │   ├── mt4_real_api.py
 │   │   ├── signal_processor.py
 │   │   └── run_mt4_connector.py
 │   ├── tests/             # Comprehensive test suite
+│   ├── mt4_api/           # MT4 DLLs and headers
 │   └── signals/           # EA signal files
 │
-├── telegram_connector/     # Production-ready Telegram bot
-│   ├── app.py             # Main Flask application
-│   ├── routes.py          # API endpoints with auth
+├── telegram_connector/    # Production-ready Telegram bot
+│   ├── app.py            # Main Flask application
+│   ├── routes.py         # API endpoints with auth
+│   ├── database.py       # Database interface
 │   ├── database_postgres.py # PostgreSQL implementation
 │   ├── database_sqlite.py  # SQLite for testing
 │   ├── session_manager.py  # Session management
@@ -117,7 +142,11 @@ solodex/
 │   ├── reconnection_manager.py # Auto-reconnection
 │   └── trade_logger.py     # Trade execution logging
 │
-└── run_tests_with_dotenv.py # Test runner with env loading
+├── data/                  # Runtime data
+│   └── logs/             # Log files
+│
+├── signals/              # Global signal files
+└── logs/                 # Application logs
 ```
 
 ## 🧪 Testing
@@ -125,7 +154,7 @@ solodex/
 ### Run All Tests (100% Pass Rate)
 ```bash
 # Using the test runner (recommended)
-python run_tests_with_dotenv.py
+python scripts/run_tests_with_dotenv.py
 
 # Or manually with environment
 export MOCK_MODE=True
