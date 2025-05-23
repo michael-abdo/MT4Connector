@@ -51,14 +51,21 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     """Send help information when the command /help is issued."""
     await update.message.reply_text(
         "🔍 *SoloTrend X Trading Bot Commands*\n\n"
-        "/start - Start the bot\n"
-        "/register - Register your account\n"
-        "/help - Show this help message\n"
-        "/status - Check bot and connection status\n"
-        "/settings - Configure your trading parameters\n"
-        "/orders - View your open orders\n"
-        "/stats - View your trading statistics\n"
+        "*Account Management:*\n"
+        "/register - Create your account\n"
+        "/login - Manage MT4 accounts\n"
+        "/accounts - View all your accounts\n"
+        "/dashboard - Multi-account dashboard\n\n"
+        "*Trading:*\n"
+        "/status - Check MT4 connection status\n"
+        "/settings - Configure trading settings\n"
+        "/orders - View and manage open orders\n"
         "/cancel - Cancel current operation\n\n"
+        "*Statistics:*\n"
+        "/stats - View trading statistics\n\n"
+        "*Other:*\n"
+        "/start - Welcome message\n"
+        "/help - Show this help message\n\n"
         "When you receive a signal, you can use the buttons below it to execute trades.",
         parse_mode="Markdown"
     )
@@ -80,7 +87,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
 
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Configure trading settings."""
+    """Configure per-account trading settings."""
     user_id = update.effective_user.id
     
     # Initialize database if needed
@@ -97,27 +104,33 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         )
         return
     
-    # Get settings from database
-    settings = db.get_user_settings(user_id)
+    # Get user's accounts
+    accounts = db.get_user_accounts(user_id)
+    if not accounts:
+        await update.message.reply_text(
+            "❌ You need to add an MT4 account first!\n\n"
+            "Use /login to add your MT4 account."
+        )
+        return
     
-    # Store in memory for current session
-    user_data_store[str(user_id)] = settings
-    
-    # Create settings keyboard
-    keyboard = [
-        [InlineKeyboardButton(f"Risk: {settings['risk_percent']}%", callback_data="settings_risk")],
-        [InlineKeyboardButton(f"Lot Size: {settings['default_lot_size']}", callback_data="settings_lot")],
-        [InlineKeyboardButton(f"Auto-Trade: {'On' if settings['auto_trade'] else 'Off'}", callback_data="settings_auto")],
-        [InlineKeyboardButton(f"Notifications: {'On' if settings['notifications'] else 'Off'}", callback_data="settings_notify")],
-        [InlineKeyboardButton("Save Settings", callback_data="settings_save")]
-    ]
-    
-    await update.message.reply_text(
-        "⚙️ *Trading Settings*\n\n"
-        "Configure your personal trading preferences:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown"
-    )
+    # If user has multiple accounts, show account selector
+    if len(accounts) > 1:
+        keyboard = []
+        for acc in accounts:
+            if acc['is_active']:
+                btn_text = f"⚙️ {acc['account_name']}" if acc.get('account_name') else f"⚙️ Account {acc['account_number']}"
+                keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"settings_account_{acc['account_number']}")])
+        
+        await update.message.reply_text(
+            "⚙️ *Select Account for Settings*\n\n"
+            "Choose which account to configure:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+    else:
+        # Single account, show settings directly
+        account = accounts[0]
+        await show_account_settings(update, context, account['account_number'])
 
 async def orders_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """View open orders."""
@@ -244,6 +257,310 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     
     await update.message.reply_text(message, parse_mode="Markdown")
 
+async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Manage MT4 accounts."""
+    user_id = update.effective_user.id
+    
+    # Initialize database if needed
+    global db
+    if db is None:
+        db = get_database()
+    
+    # Check if user is registered
+    user = db.get_user(user_id)
+    if not user:
+        await update.message.reply_text(
+            "❌ You are not registered yet.\n"
+            "Use /register to create your account."
+        )
+        return
+    
+    # Get command arguments
+    args = context.args
+    
+    if not args:
+        # Show account list
+        accounts = db.get_user_accounts(user_id)
+        
+        if not accounts:
+            await update.message.reply_text(
+                "📭 You don't have any MT4 accounts configured.\n\n"
+                "To add an account:\n"
+                "/login add <account_number> <server> <password> <name>\n\n"
+                "Example:\n"
+                "/login add 12345 demo.mt4.com:443 mypass123 Demo Account"
+            )
+        else:
+            # Format account list
+            message = "📊 *Your MT4 Accounts*\n\n"
+            
+            for acc in accounts:
+                default = "✅" if acc['is_default'] else "⚪"
+                message += (
+                    f"{default} *{acc['account_name']}*\n"
+                    f"   Account: {acc['account_number']}\n"
+                    f"   Server: {acc['server']}\n\n"
+                )
+            
+            message += (
+                "Commands:\n"
+                "/login switch <account_number> - Switch account\n"
+                "/login add <number> <server> <pass> <name> - Add account\n"
+                "/login remove <account_number> - Remove account"
+            )
+            
+            await update.message.reply_text(message, parse_mode="Markdown")
+    
+    elif args[0] == "add":
+        # Add new account
+        if len(args) < 5:
+            await update.message.reply_text(
+                "❌ Invalid format.\n\n"
+                "Usage: /login add <account_number> <server> <password> <name>\n"
+                "Example: /login add 12345 demo.mt4.com:443 mypass123 Demo Account"
+            )
+            return
+        
+        try:
+            account_number = int(args[1])
+            server = args[2]
+            password = args[3]
+            account_name = " ".join(args[4:])
+            
+            # Check if first account (make it default)
+            accounts = db.get_user_accounts(user_id)
+            is_default = len(accounts) == 0
+            
+            # Add account
+            success = db.add_mt4_account(
+                telegram_id=user_id,
+                account_number=account_number,
+                account_name=account_name,
+                server=server,
+                password=password,
+                is_default=is_default
+            )
+            
+            if success:
+                await update.message.reply_text(
+                    f"✅ Account {account_name} added successfully!\n"
+                    f"Account number: {account_number}\n"
+                    f"{'This is now your default account.' if is_default else ''}"
+                )
+            else:
+                await update.message.reply_text(
+                    "❌ Failed to add account. It may already exist."
+                )
+                
+        except ValueError:
+            await update.message.reply_text(
+                "❌ Invalid account number. Must be numeric."
+            )
+    
+    elif args[0] == "switch":
+        # Switch default account
+        if len(args) < 2:
+            await update.message.reply_text(
+                "❌ Please specify account number.\n"
+                "Usage: /login switch <account_number>"
+            )
+            return
+        
+        try:
+            account_number = int(args[1])
+            
+            # Check if user owns this account
+            accounts = db.get_user_accounts(user_id)
+            if not any(acc['account_number'] == account_number for acc in accounts):
+                await update.message.reply_text(
+                    "❌ Account not found. Use /login to see your accounts."
+                )
+                return
+            
+            # Set as default
+            success = db.set_default_account(user_id, account_number)
+            
+            if success:
+                await update.message.reply_text(
+                    f"✅ Switched to account {account_number}"
+                )
+            else:
+                await update.message.reply_text(
+                    "❌ Failed to switch account."
+                )
+                
+        except ValueError:
+            await update.message.reply_text(
+                "❌ Invalid account number."
+            )
+    
+    elif args[0] == "remove":
+        # Remove account
+        if len(args) < 2:
+            await update.message.reply_text(
+                "❌ Please specify account number.\n"
+                "Usage: /login remove <account_number>"
+            )
+            return
+        
+        try:
+            account_number = int(args[1])
+            
+            # Remove account
+            success = db.remove_account(user_id, account_number)
+            
+            if success:
+                await update.message.reply_text(
+                    f"✅ Account {account_number} removed."
+                )
+            else:
+                await update.message.reply_text(
+                    "❌ Failed to remove account."
+                )
+                
+        except ValueError:
+            await update.message.reply_text(
+                "❌ Invalid account number."
+            )
+    
+    else:
+        await update.message.reply_text(
+            "❌ Unknown command. Use /login to see available options."
+        )
+
+async def dashboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show multi-account trading dashboard."""
+    user_id = update.effective_user.id
+    
+    # Initialize database if needed
+    global db
+    if db is None:
+        db = get_database()
+    
+    # Check if user is registered
+    user = db.get_user(user_id)
+    if not user:
+        await update.message.reply_text(
+            "❌ You are not registered yet.\n"
+            "Use /register to create your account."
+        )
+        return
+    
+    # Get user's accounts
+    accounts = db.get_user_accounts(user_id)
+    if not accounts:
+        await update.message.reply_text(
+            "❌ You don't have any MT4 accounts yet.\n"
+            "Use /login to add your first account."
+        )
+        return
+    
+    # Build dashboard message
+    message = "📊 *Multi-Account Trading Dashboard*\n"
+    message += "━" * 30 + "\n\n"
+    
+    total_trades = 0
+    total_profit = 0.0
+    
+    for acc in accounts:
+        if not acc['is_active']:
+            continue
+            
+        # Get account settings
+        settings = db.get_account_settings(acc['account_number'])
+        
+        # Get account statistics (from signal history)
+        stats = db.get_account_stats(acc['account_number'])
+        
+        # Account header
+        account_name = acc['account_name'] if acc.get('account_name') else f"Account {acc['account_number']}"
+        is_default = "⭐ " if acc['is_default'] else ""
+        
+        message += f"{is_default}*{account_name}*\n"
+        message += f"├ Server: {acc['server']}\n"
+        message += f"├ Account: {acc['account_number']}\n"
+        message += f"├ Lot Size: {settings['default_lot_size']}\n"
+        message += f"├ Risk: {settings['risk_percent']}%\n"
+        message += f"├ Auto-Trade: {'✅' if settings['auto_trade'] else '❌'}\n"
+        
+        # Add stats if available
+        if stats:
+            executed = stats.get('executed_trades', 0)
+            win_rate = stats.get('win_rate', 0)
+            net_profit = stats.get('net_profit', 0)
+            
+            message += f"├ Trades: {executed}\n"
+            message += f"├ Win Rate: {win_rate:.1f}%\n"
+            message += f"└ P&L: ${net_profit:.2f}\n"
+            
+            total_trades += executed
+            total_profit += net_profit
+        else:
+            message += f"└ No trades yet\n"
+        
+        message += "\n"
+    
+    # Add summary
+    message += "━" * 30 + "\n"
+    message += f"*Summary*\n"
+    message += f"Total Accounts: {len([a for a in accounts if a['is_active']])}\n"
+    message += f"Total Trades: {total_trades}\n"
+    message += f"Total P&L: ${total_profit:.2f}\n"
+    
+    # Add action buttons
+    keyboard = [
+        [
+            InlineKeyboardButton("➕ Add Account", callback_data="login_add"),
+            InlineKeyboardButton("🔄 Switch Account", callback_data="login_switch")
+        ],
+        [
+            InlineKeyboardButton("⚙️ Settings", callback_data="settings_menu"),
+            InlineKeyboardButton("📈 Performance", callback_data="performance_menu")
+        ]
+    ]
+    
+    await update.message.reply_text(
+        message,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+
+async def accounts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show account dashboard."""
+    user_id = update.effective_user.id
+    
+    # Initialize database if needed
+    global db
+    if db is None:
+        db = get_database()
+    
+    # Get user accounts
+    accounts = db.get_user_accounts(user_id)
+    
+    if not accounts:
+        await update.message.reply_text(
+            "📭 No accounts configured.\n"
+            "Use /login add to add an account."
+        )
+        return
+    
+    # Create inline keyboard for account selection
+    keyboard = []
+    
+    for acc in accounts:
+        btn_text = f"{'✅' if acc['is_default'] else '⚪'} {acc['account_name']} ({acc['account_number']})"
+        callback_data = f"account_select_{acc['account_number']}"
+        keyboard.append([InlineKeyboardButton(btn_text, callback_data=callback_data)])
+    
+    keyboard.append([InlineKeyboardButton("➕ Add New Account", callback_data="account_add")])
+    
+    await update.message.reply_text(
+        "🏦 *Account Dashboard*\n\n"
+        "Select an account to view details:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+
 async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Cancel current operation."""
     await update.message.reply_text("Operation canceled.")
@@ -275,6 +592,115 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # Handle order modify request
         _, ticket = callback_data.split("_")
         await handle_modify_order(update, context, ticket)
+    
+    elif callback_data.startswith("signal_"):
+        # Handle signal account selection
+        parts = callback_data.split("_")
+        if len(parts) >= 4 and parts[2] == "account":
+            signal_id = parts[1]
+            account_number = int(parts[3])
+            await handle_signal_with_account(update, context, signal_id, account_number)
+    
+    elif callback_data.startswith("settings_account_"):
+        # Handle settings account selection
+        account_number = int(callback_data.replace("settings_account_", ""))
+        await show_account_settings(update, context, account_number)
+
+async def show_account_settings(update: Update, context: ContextTypes.DEFAULT_TYPE, account_number: int) -> None:
+    """Show settings for a specific account."""
+    db = get_database()
+    
+    # Get account info
+    accounts = db.get_user_accounts(update.effective_user.id)
+    account = next((acc for acc in accounts if acc['account_number'] == account_number), None)
+    
+    if not account:
+        await update.message.reply_text("❌ Account not found.")
+        return
+    
+    # Get account settings
+    settings = db.get_account_settings(account_number)
+    
+    # Store current account in context for settings updates
+    if "current_settings_account" not in context.user_data:
+        context.user_data["current_settings_account"] = {}
+    context.user_data["current_settings_account"] = account_number
+    
+    # Create settings keyboard
+    keyboard = [
+        [InlineKeyboardButton(f"Risk: {settings['risk_percent']}%", callback_data="settings_risk")],
+        [InlineKeyboardButton(f"Lot Size: {settings['default_lot_size']}", callback_data="settings_lot")],
+        [InlineKeyboardButton(f"Auto-Trade: {'On' if settings['auto_trade'] else 'Off'}", callback_data="settings_auto")],
+        [InlineKeyboardButton(f"Notifications: {'On' if settings['notifications'] else 'Off'}", callback_data="settings_notify")],
+        [InlineKeyboardButton(f"Max Daily Trades: {settings['max_daily_trades']}", callback_data="settings_max_trades")],
+        [InlineKeyboardButton("💾 Save Settings", callback_data="settings_save")]
+    ]
+    
+    account_display = f"{account['account_name']}" if account.get('account_name') else f"Account {account_number}"
+    
+    message = (
+        f"⚙️ *Settings for {account_display}*\n\n"
+        f"Server: {account['server']}\n"
+        f"Configure your trading preferences:"
+    )
+    
+    # Check if this is from a callback or a regular message
+    if update.callback_query:
+        await update.callback_query.edit_message_text(
+            message,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+    else:
+        await update.message.reply_text(
+            message,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+
+async def handle_signal_with_account(update: Update, context: ContextTypes.DEFAULT_TYPE, signal_id: str, account_number: int) -> None:
+    """Handle signal after account selection."""
+    query = update.callback_query
+    await query.answer()
+    
+    # Get the signal from bot_data
+    signals = context.bot_data.get("active_signals", {})
+    if signal_id not in signals:
+        await query.edit_message_text("⚠️ This signal has expired or is no longer valid.")
+        return
+    
+    signal = signals[signal_id]
+    
+    # Store the selected account for this signal
+    if "selected_accounts" not in context.bot_data:
+        context.bot_data["selected_accounts"] = {}
+    context.bot_data["selected_accounts"][signal_id] = account_number
+    
+    # Show trade options with the selected account
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Accept", callback_data=f"trade_{signal_id}_accept"),
+            InlineKeyboardButton("❌ Reject", callback_data=f"trade_{signal_id}_reject")
+        ],
+        [InlineKeyboardButton("⚙️ Custom", callback_data=f"trade_{signal_id}_custom")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # Update message to show selected account
+    db = get_database()
+    account_info = db.get_user_accounts(update.effective_user.id)
+    selected_account = next((acc for acc in account_info if acc['account_number'] == account_number), None)
+    
+    account_display = f"{selected_account['account_name']}" if selected_account and selected_account.get('account_name') else f"Account {account_number}"
+    
+    current_text = query.message.text
+    updated_text = f"{current_text}\n\n📍 Selected Account: {account_display}"
+    
+    await query.edit_message_text(
+        text=updated_text,
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
+    )
 
 async def handle_trade_action(update: Update, context: ContextTypes.DEFAULT_TYPE, signal_id: str, action: str) -> None:
     """Handle trading actions from callback buttons."""
@@ -291,8 +717,39 @@ async def handle_trade_action(update: Update, context: ContextTypes.DEFAULT_TYPE
     if action == "accept":
         # Get user settings for lot size
         user_id = str(update.effective_user.id)
-        user_settings = user_data_store.get(user_id, {"default_lot_size": 0.01})
-        lot_size = user_settings.get("default_lot_size", 0.01)
+        
+        # Get user's selected account for this signal or default
+        db = get_database()
+        selected_accounts = context.bot_data.get("selected_accounts", {})
+        account_number = selected_accounts.get(signal_id)
+        
+        if not account_number:
+            # No account selected for this signal, use default
+            account_number = db.get_default_account(int(user_id))
+            if not account_number:
+                # Check if user has any accounts
+                accounts = db.get_user_accounts(int(user_id))
+                if not accounts:
+                    await query.edit_message_text(
+                        "❌ You need to add an MT4 account first!\n\n"
+                        "Use /login to add your MT4 account."
+                    )
+                    return
+                # Use first account if no default set
+                account_number = accounts[0]['account_number']
+        
+        # Get account credentials
+        credentials = db.get_account_credentials(account_number)
+        if not credentials:
+            await query.edit_message_text(
+                "❌ Unable to retrieve account credentials.\n"
+                "Please re-add your account using /login."
+            )
+            return
+        
+        # Get per-account settings
+        account_settings = db.get_account_settings(account_number)
+        lot_size = account_settings.get('default_lot_size', 0.01)
         
         # Prepare trade request
         trade_request = {
@@ -300,7 +757,10 @@ async def handle_trade_action(update: Update, context: ContextTypes.DEFAULT_TYPE
             "direction": signal.get("direction", "BUY"),
             "volume": lot_size,
             "sl": signal.get("stop_loss"),
-            "tp": signal.get("take_profit")
+            "tp": signal.get("take_profit"),
+            "account": account_number,
+            "server": credentials['server'],
+            "password": credentials['password']
         }
         
         # Execute trade through MT4 connector
@@ -317,7 +777,7 @@ async def handle_trade_action(update: Update, context: ContextTypes.DEFAULT_TYPE
                 signal_history = {
                     'signal_id': signal_id,
                     'telegram_id': int(user_id),
-                    'mt4_account': 12345,  # Default account for Phase 3
+                    'mt4_account': account_number,
                     'symbol': signal.get('symbol'),
                     'action': signal.get('direction', 'BUY'),
                     'volume': lot_size,
@@ -332,8 +792,14 @@ async def handle_trade_action(update: Update, context: ContextTypes.DEFAULT_TYPE
                                       ticket=result.get('ticket'),
                                       executed_at=datetime.now())
                 
+                # Get account info for display
+                account_info = db.get_user_accounts(int(user_id))
+                selected_account = next((acc for acc in account_info if acc['account_number'] == account_number), None)
+                account_display = f"{selected_account['account_name']}" if selected_account and selected_account.get('account_name') else f"Account {account_number}"
+                
                 await query.edit_message_text(
                     f"✅ Trade executed successfully!\n\n"
+                    f"Account: {account_display}\n"
                     f"Ticket: {result.get('ticket', 'N/A')}\n"
                     f"Symbol: {signal.get('symbol')}\n"
                     f"Direction: {signal.get('direction')}\n"
@@ -648,6 +1114,9 @@ def setup_bot(app):
         application.add_handler(CommandHandler("orders", orders_command))
         application.add_handler(CommandHandler("stats", stats_command))
         application.add_handler(CommandHandler("cancel", cancel_command))
+        application.add_handler(CommandHandler("login", login_command))
+        application.add_handler(CommandHandler("accounts", accounts_command))
+        application.add_handler(CommandHandler("dashboard", dashboard_command))
         
         # Add callback query handler for buttons
         application.add_handler(CallbackQueryHandler(handle_callback))
