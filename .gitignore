@@ -1,0 +1,62 @@
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Keep example files
+!.env.example
+!.env.test.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+
+# Logs
+logs/
+*.log
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+
+# Build
+build/
+dist/
+*.egg-info/
+
+# Secrets
+*.pem
+*.key
+.encryption_key
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
