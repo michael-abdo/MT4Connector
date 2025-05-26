@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MT4 WebSocket Client Example</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        .connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .controls {
+            margin-bottom: 20px;
+        }
+        button {
+            padding: 8px 16px;
+            margin-right: 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            background-color: #007bff;
+            color: white;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        input {
+            padding: 8px;
+            margin-right: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .quotes {
+            margin-top: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f8f9fa;
+            font-weight: bold;
+        }
+        .messages {
+            margin-top: 20px;
+            max-height: 300px;
+            overflow-y: auto;
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .message {
+            margin-bottom: 5px;
+        }
+        .error {
+            color: red;
+        }
+        .success {
+            color: green;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>MT4 WebSocket Client Example</h1>
+        
+        <div id="status" class="status disconnected">
+            Status: Disconnected
+        </div>
+        
+        <div class="controls">
+            <input type="text" id="token" placeholder="Enter JWT token" style="width: 300px;">
+            <button id="connectBtn" onclick="connect()">Connect</button>
+            <button id="disconnectBtn" onclick="disconnect()" disabled>Disconnect</button>
+        </div>
+        
+        <div class="controls">
+            <h3>Subscribe to Symbols</h3>
+            <input type="text" id="symbols" placeholder="EURUSD,GBPUSD,USDJPY" value="EURUSD,GBPUSD,USDJPY">
+            <button id="subscribeBtn" onclick="subscribe()" disabled>Subscribe</button>
+            <button id="unsubscribeBtn" onclick="unsubscribe()" disabled>Unsubscribe</button>
+        </div>
+        
+        <div class="quotes">
+            <h3>Real-time Quotes</h3>
+            <table id="quotesTable">
+                <thead>
+                    <tr>
+                        <th>Symbol</th>
+                        <th>Bid</th>
+                        <th>Ask</th>
+                        <th>Spread</th>
+                        <th>Time</th>
+                        <th>Updates</th>
+                    </tr>
+                </thead>
+                <tbody id="quotesBody">
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="messages">
+            <h3>Messages</h3>
+            <div id="messageLog"></div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let quotes = {};
+        let updateCounts = {};
+        
+        function addMessage(message, type = '') {
+            const messageLog = document.getElementById('messageLog');
+            const div = document.createElement('div');
+            div.className = `message ${type}`;
+            div.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            messageLog.appendChild(div);
+            messageLog.scrollTop = messageLog.scrollHeight;
+        }
+        
+        function updateStatus(connected) {
+            const status = document.getElementById('status');
+            const connectBtn = document.getElementById('connectBtn');
+            const disconnectBtn = document.getElementById('disconnectBtn');
+            const subscribeBtn = document.getElementById('subscribeBtn');
+            const unsubscribeBtn = document.getElementById('unsubscribeBtn');
+            
+            if (connected) {
+                status.className = 'status connected';
+                status.textContent = 'Status: Connected';
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                subscribeBtn.disabled = false;
+                unsubscribeBtn.disabled = false;
+            } else {
+                status.className = 'status disconnected';
+                status.textContent = 'Status: Disconnected';
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+                subscribeBtn.disabled = true;
+                unsubscribeBtn.disabled = true;
+            }
+        }
+        
+        function connect() {
+            const token = document.getElementById('token').value;
+            
+            if (!token) {
+                alert('Please enter a JWT token');
+                return;
+            }
+            
+            addMessage('Connecting to WebSocket server...');
+            
+            ws = new WebSocket('ws://localhost:8765');
+            
+            ws.onopen = function() {
+                addMessage('Connected to server', 'success');
+                updateStatus(true);
+                
+                // Send authentication
+                ws.send(JSON.stringify({
+                    action: 'auth',
+                    token: token
+                }));
+            };
+            
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                
+                switch(data.type) {
+                    case 'welcome':
+                        addMessage(`Welcome! Client ID: ${data.client_id}`);
+                        break;
+                        
+                    case 'auth_response':
+                        if (data.success) {
+                            addMessage('Authentication successful', 'success');
+                        } else {
+                            addMessage(`Authentication failed: ${data.message}`, 'error');
+                            ws.close();
+                        }
+                        break;
+                        
+                    case 'subscription_update':
+                        addMessage(`${data.action}: ${data.symbols.join(', ')}`);
+                        break;
+                        
+                    case 'quote':
+                        updateQuote(data.data);
+                        break;
+                        
+                    case 'error':
+                        addMessage(`Error: ${data.message}`, 'error');
+                        break;
+                        
+                    default:
+                        addMessage(`Unknown message type: ${data.type}`);
+                }
+            };
+            
+            ws.onerror = function(error) {
+                addMessage(`WebSocket error: ${error}`, 'error');
+            };
+            
+            ws.onclose = function() {
+                addMessage('Disconnected from server');
+                updateStatus(false);
+                ws = null;
+            };
+        }
+        
+        function disconnect() {
+            if (ws) {
+                ws.close();
+            }
+        }
+        
+        function subscribe() {
+            if (!ws) return;
+            
+            const symbolsInput = document.getElementById('symbols').value;
+            const symbols = symbolsInput.split(',').map(s => s.trim()).filter(s => s);
+            
+            if (symbols.length === 0) {
+                alert('Please enter at least one symbol');
+                return;
+            }
+            
+            ws.send(JSON.stringify({
+                action: 'subscribe',
+                symbols: symbols
+            }));
+        }
+        
+        function unsubscribe() {
+            if (!ws) return;
+            
+            const symbolsInput = document.getElementById('symbols').value;
+            const symbols = symbolsInput.split(',').map(s => s.trim()).filter(s => s);
+            
+            if (symbols.length === 0) {
+                alert('Please enter at least one symbol');
+                return;
+            }
+            
+            ws.send(JSON.stringify({
+                action: 'unsubscribe',
+                symbols: symbols
+            }));
+        }
+        
+        function updateQuote(quote) {
+            quotes[quote.symbol] = quote;
+            updateCounts[quote.symbol] = (updateCounts[quote.symbol] || 0) + 1;
+            
+            const tbody = document.getElementById('quotesBody');
+            let row = document.getElementById(`quote-${quote.symbol}`);
+            
+            if (!row) {
+                row = document.createElement('tr');
+                row.id = `quote-${quote.symbol}`;
+                tbody.appendChild(row);
+            }
+            
+            row.innerHTML = `
+                <td>${quote.symbol}</td>
+                <td>${quote.bid.toFixed(5)}</td>
+                <td>${quote.ask.toFixed(5)}</td>
+                <td>${quote.spread.toFixed(1)}</td>
+                <td>${new Date(quote.time * 1000).toLocaleTimeString()}</td>
+                <td>${updateCounts[quote.symbol]}</td>
+            `;
+            
+            // Flash effect
+            row.style.backgroundColor = '#ffffcc';
+            setTimeout(() => {
+                row.style.backgroundColor = '';
+            }, 300);
+        }
+        
+        // Ping every 30 seconds to keep connection alive
+        setInterval(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ action: 'ping' }));
+            }
+        }, 30000);
+    </script>
+</body>
+</html>

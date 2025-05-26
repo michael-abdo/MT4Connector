@@ -5,10 +5,11 @@ Wrapper for real MT4 Manager API calls with fallback to mock mode
 import os
 import sys
 import logging
+import asyncio
 import ctypes
 from ctypes import *
 import platform
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Callable
 from enum import IntEnum
 
 # Import mock API as fallback
@@ -26,8 +27,18 @@ except ImportError:
     # Try alternate path
     sys.path.insert(0, os.path.dirname(__file__))
     from mock_api import MT4MockAPI
-    
+
 logger = logging.getLogger(__name__)
+
+# Import pumping mode components
+try:
+    from mt4_pumping import MT4PumpingMode, PumpingCode
+    from mt4_event_dispatcher import EventDispatcher
+    from mt4_websocket import MT4WebSocketServer
+    HAS_PUMPING = True
+except ImportError as e:
+    logger.warning(f"Pumping mode components not available: {e}")
+    HAS_PUMPING = False
 
 class MT4RealAPI:
     """
@@ -50,6 +61,13 @@ class MT4RealAPI:
         self.connected = False
         self.manager = None
         self.server_info = {}
+        
+        # Pumping mode components
+        self.pumping_mode = None
+        self.event_dispatcher = None
+        self.websocket_server = None
+        self.pumping_active = False
+        self._event_loop = None
         
         if self.use_mock:
             logger.info("Initializing MT4 API in MOCK mode")
@@ -433,6 +451,152 @@ class MT4RealAPI:
             -10: "Position locked"
         }
         return error_messages.get(error_code, f"Unknown error code: {error_code}")
+    
+    # Pumping Mode Methods
+    async def start_pumping_mode(self, websocket_host: str = 'localhost', 
+                                websocket_port: int = 8765) -> bool:
+        """
+        Start pumping mode for real-time data streaming
+        
+        Args:
+            websocket_host: Host for WebSocket server
+            websocket_port: Port for WebSocket server
+            
+        Returns:
+            bool: True if pumping mode started successfully
+        """
+        if not HAS_PUMPING:
+            logger.error("Pumping mode components not available")
+            return False
+            
+        if self.pumping_active:
+            logger.warning("Pumping mode already active")
+            return True
+            
+        if not self.connected:
+            logger.error("Must be connected to MT4 server to start pumping mode")
+            return False
+            
+        try:
+            # Get or create event loop
+            try:
+                self._event_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                self._event_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(self._event_loop)
+            
+            # Initialize components
+            self.pumping_mode = MT4PumpingMode(self.manager if not self.use_mock else None)
+            self.event_dispatcher = EventDispatcher()
+            self.websocket_server = MT4WebSocketServer(websocket_host, websocket_port)
+            
+            # Register event handlers
+            self._register_event_handlers()
+            
+            # Start pumping
+            if self.pumping_mode.start(self._event_loop):
+                # Start WebSocket server
+                await self.websocket_server.start()
+                
+                # Start event processing
+                asyncio.create_task(self.pumping_mode.process_events())
+                
+                self.pumping_active = True
+                logger.info("Pumping mode started successfully")
+                return True
+            else:
+                logger.error("Failed to start pumping mode")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error starting pumping mode: {e}")
+            return False
+    
+    def stop_pumping_mode(self):
+        """Stop pumping mode"""
+        if not self.pumping_active:
+            return
+            
+        try:
+            if self.pumping_mode:
+                self.pumping_mode.stop()
+                
+            if self.websocket_server:
+                asyncio.create_task(self.websocket_server.stop())
+                
+            self.pumping_active = False
+            logger.info("Pumping mode stopped")
+            
+        except Exception as e:
+            logger.error(f"Error stopping pumping mode: {e}")
+    
+    def _register_event_handlers(self):
+        """Register handlers for pumping events"""
+        if not self.pumping_mode or not self.event_dispatcher:
+            return
+            
+        # Register pumping mode handlers
+        self.pumping_mode.register_handler(
+            PumpingCode.UPDATE_BID_ASK,
+            self._handle_quote_update
+        )
+        self.pumping_mode.register_handler(
+            PumpingCode.UPDATE_TRADES,
+            self._handle_trade_update
+        )
+        
+        # Register dispatcher handlers for WebSocket broadcasting
+        self.event_dispatcher.subscribe_all_quotes(
+            self._broadcast_quote_to_websocket
+        )
+        self.event_dispatcher.subscribe_all_trades(
+            self._broadcast_trade_to_websocket
+        )
+    
+    async def _handle_quote_update(self, quote_data):
+        """Handle quote update from pumping mode"""
+        # Dispatch to event dispatcher
+        await self.event_dispatcher.dispatch(PumpingCode.UPDATE_BID_ASK, quote_data)
+    
+    async def _handle_trade_update(self, trade_data):
+        """Handle trade update from pumping mode"""
+        # Dispatch to event dispatcher
+        await self.event_dispatcher.dispatch(PumpingCode.UPDATE_TRADES, trade_data)
+    
+    async def _broadcast_quote_to_websocket(self, quote_data):
+        """Broadcast quote to WebSocket clients"""
+        if self.websocket_server:
+            await self.websocket_server.broadcast_quote(quote_data)
+    
+    async def _broadcast_trade_to_websocket(self, trade_data):
+        """Broadcast trade to WebSocket clients"""
+        if self.websocket_server:
+            await self.websocket_server.broadcast_trade(trade_data, trade_data.login)
+    
+    def subscribe_quotes(self, symbol: str, callback: Callable):
+        """Subscribe to quote updates for a symbol"""
+        if self.event_dispatcher:
+            self.event_dispatcher.subscribe_quotes(symbol, callback)
+    
+    def subscribe_trades(self, login: int, callback: Callable):
+        """Subscribe to trade updates for a login"""
+        if self.event_dispatcher:
+            self.event_dispatcher.subscribe_trades(login, callback)
+    
+    def get_pumping_stats(self) -> Dict[str, Any]:
+        """Get statistics from pumping mode"""
+        stats = {}
+        
+        if self.pumping_mode:
+            stats['pumping'] = self.pumping_mode.get_stats()
+            
+        if self.event_dispatcher:
+            stats['dispatcher'] = self.event_dispatcher.get_stats()
+            
+        if self.websocket_server:
+            stats['websocket'] = self.websocket_server.get_stats()
+            
+        return stats
 
 # Create a singleton instance
 _mt4_real_api = None
