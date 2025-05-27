@@ -43,6 +43,35 @@ The connector will:
 4. Connect to your MT4 server
 5. Start monitoring for trading signals
 
+## Installation Directory Information
+
+**Important**: The MT4 Connector does **NOT** need to be installed in any specific directory. It works independently of your MT4 terminal installation.
+
+### How It Works:
+- **MT4 Manager API**: Connects directly to the MT4 server over the network (e.g., 195.88.127.154:45543)
+- **No MT4 Terminal Required**: Uses manager credentials to authenticate directly with the broker's server
+- **File-Based Communication**: Your EA writes signals to a JSON file that the connector monitors
+
+### Directory Structure:
+```
+C:\Any\Directory\You\Want\MT4Connector\
+├── mt4_api\
+│   ├── mtmanapi.dll        (Required - MT4 Manager API)
+│   └── mtmanapi64.dll      (Required - 64-bit version)
+├── signals\
+│   └── ea_signals.txt      (EA writes signals here)
+├── src\
+│   └── (connector code)
+└── START_WINDOWS.bat
+```
+
+### Example Setup:
+- **MT4 Terminal**: `C:\Program Files (x86)\MetaTrader 4\`
+- **MT4 Connector**: `C:\MT4Connector\` (or any location you prefer)
+- **EA Signal File**: Update your EA to write to the connector's signals directory
+
+The connector acts as a bridge between your EA and the MT4 server, using the Manager API for direct server communication.
+
 ## Telegram Bot Integration
 
 The MT4 Connector includes a Telegram bot that allows you to receive trading signals and manage trades from your mobile device.
